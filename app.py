@@ -42,6 +42,7 @@ except ImportError:
     st.stop()
 
 import io
+import logging
 
 # ---------------------------------------------------------------------------
 # 3. SECRETS / CONFIGURATION
@@ -56,9 +57,14 @@ def get_groq_config():
     Stops the app with a friendly message if the key is missing.
     """
     api_key = st.secrets.get("GROQ_API_KEY", None)
-    # This is Groq's own model ID (as shown at console.groq.com/docs/models),
-    # e.g. "openai/gpt-oss-120b" - do NOT add a "groq/" prefix here.
-    raw_model_name = st.secrets.get("GROQ_MODEL", "openai/gpt-oss-120b")
+    # Groq's own model ID exactly as shown at console.groq.com/docs/models,
+    # e.g. "openai/gpt-oss-120b" or "llama-3.3-70b-versatile".
+    # It is sent to Groq UNCHANGED - do not add or remove prefixes.
+    model_name = str(st.secrets.get("GROQ_MODEL", "openai/gpt-oss-120b")).strip()
+
+    # Tolerate a leftover "groq/" prefix from older setups.
+    if model_name.lower().startswith("groq/"):
+        model_name = model_name[len("groq/"):]
 
     if not api_key or not str(api_key).strip():
         st.error(
@@ -70,18 +76,7 @@ def get_groq_config():
         )
         st.stop()
 
-    # CrewAI routes any model string starting with "openai/" through its
-    # native OpenAI-compatible client, which respects a custom base_url.
-    # Groq's API is OpenAI-compatible, so we send requests there instead
-    # of OpenAI, using this native path (no LiteLLM dependency required).
-    # Note: some Groq model IDs (like "openai/gpt-oss-120b") already start
-    # with "openai/" as part of Groq's own naming - don't double it up.
-    if raw_model_name.startswith("openai/"):
-        crewai_model = raw_model_name
-    else:
-        crewai_model = f"openai/{raw_model_name}"
-
-    return api_key, crewai_model
+    return str(api_key).strip(), model_name
 
 
 GROQ_API_KEY, GROQ_MODEL = get_groq_config()
@@ -136,8 +131,14 @@ def build_crew(resume_text: str, job_description: str) -> Crew:
     """
     Builds exactly one Agent, one Task, and one Crew.
     """
+    # IMPORTANT: provider="openai" tells CrewAI to use its OpenAI-compatible
+    # client (pointed at Groq via base_url) and to send the model string
+    # exactly as written. Without it, CrewAI treats the leading "openai/" in
+    # Groq's "openai/gpt-oss-120b" as its own routing prefix, strips it, and
+    # Groq receives "gpt-oss-120b" -> 404 model_not_found.
     llm = LLM(
         model=GROQ_MODEL,
+        provider="openai",
         api_key=GROQ_API_KEY,
         base_url=GROQ_BASE_URL,
         temperature=0.2,
@@ -249,6 +250,7 @@ def run_review(resume_text: str, job_description: str):
         return True, str(result)
 
     except Exception as e:
+        logging.exception("Resume review failed")
         error_text = str(e).lower()
 
         if "rate limit" in error_text or "429" in error_text:
@@ -276,9 +278,10 @@ def run_review(resume_text: str, job_description: str):
             )
         elif "model" in error_text and ("not found" in error_text or "decommission" in error_text):
             friendly = (
-                "🤖 The configured Groq model is unavailable or has been "
-                "retired. Please update GROQ_MODEL in your app's Secrets "
-                "to a currently supported Groq production model."
+                f"🤖 Groq could not find the model `{GROQ_MODEL}`. It may have "
+                "been retired, or the name in GROQ_MODEL (app Secrets) may not "
+                "match Groq's exact model ID. Check "
+                "console.groq.com/docs/models and update GROQ_MODEL."
             )
         else:
             friendly = (
