@@ -47,13 +47,18 @@ import io
 # 3. SECRETS / CONFIGURATION
 #    Everything sensitive comes from Streamlit secrets, never hard-coded.
 # ---------------------------------------------------------------------------
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
 def get_groq_config():
     """
     Reads the Groq API key and model name from Streamlit secrets.
     Stops the app with a friendly message if the key is missing.
     """
     api_key = st.secrets.get("GROQ_API_KEY", None)
-    model_name = st.secrets.get("GROQ_MODEL", "openai/gpt-oss-120b")
+    # This is Groq's own model ID (as shown at console.groq.com/docs/models),
+    # e.g. "openai/gpt-oss-120b" — do NOT add a "groq/" prefix here.
+    raw_model_name = st.secrets.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
     if not api_key or not str(api_key).strip():
         st.error(
@@ -65,11 +70,13 @@ def get_groq_config():
         )
         st.stop()
 
-    # CrewAI (via LiteLLM) expects Groq models with a 'groq/' prefix.
-    if not model_name.startswith("groq/"):
-        model_name = f"groq/{model_name}"
+    # CrewAI routes any model string starting with "openai/" through its
+    # native OpenAI-compatible client, which respects a custom base_url.
+    # Groq's API is OpenAI-compatible, so we send requests there instead
+    # of OpenAI, using this native path (no LiteLLM dependency required).
+    crewai_model = f"openai/{raw_model_name}"
 
-    return api_key, model_name
+    return api_key, crewai_model
 
 
 GROQ_API_KEY, GROQ_MODEL = get_groq_config()
@@ -127,6 +134,7 @@ def build_crew(resume_text: str, job_description: str) -> Crew:
     llm = LLM(
         model=GROQ_MODEL,
         api_key=GROQ_API_KEY,
+        base_url=GROQ_BASE_URL,
         temperature=0.2,
     )
 
@@ -253,6 +261,13 @@ def run_review(resume_text: str, job_description: str):
             friendly = (
                 "🔑 The Groq API key was rejected. Please double-check the "
                 "GROQ_API_KEY value in your app's Secrets settings."
+            )
+        elif "native provider" in error_text or "litellm" in error_text:
+            friendly = (
+                "⚙️ The AI model connection is misconfigured. This is a "
+                "setup issue, not something caused by your input. Please "
+                "let the app owner know so they can check the LLM "
+                "configuration in app.py."
             )
         elif "model" in error_text and ("not found" in error_text or "decommission" in error_text):
             friendly = (

@@ -19,7 +19,12 @@ in the resume. If something can't be confirmed, it's labeled
 - **Streamlit** — the web interface: text boxes, PDF upload, buttons, and
   the final formatted report.
 - **Groq** — the LLM provider that actually generates the review text,
-  called through CrewAI's built-in `LLM` class.
+  called through CrewAI's built-in `LLM` class using its **native
+  OpenAI-compatible client** pointed at Groq's API endpoint
+  (`https://api.groq.com/openai/v1`). This avoids depending on the
+  LiteLLM package, which CrewAI 1.x normally uses for non-native
+  providers like Groq, but which had a real supply-chain security
+  incident on PyPI in March 2026.
 
 No databases, no multi-agent chains, no authentication, no Docker — just
 one file (`app.py`) doing one job well.
@@ -107,7 +112,8 @@ You should now see all 5 items listed in your repository.
 | Build fails mentioning `onnxruntime` or `chromadb` | These are internal dependencies of CrewAI unrelated to this app's features, and can occasionally fail to build on certain platforms | Reboot the app once (Streamlit Cloud sometimes retries successfully). If it persists, note the exact error and consider pinning `crewai` to a nearby patch version in `requirements.txt`. |
 | "The Groq API key was rejected" | Key was copied incorrectly, has extra spaces, or was revoked | Regenerate a new key in the Groq console and update your app's Secrets. |
 | "Groq's rate limit was reached" | Too many requests in a short time on the free tier | Wait about a minute and click the review button again. |
-| "The configured Groq model is unavailable" | Groq retired or renamed the model | Go to [console.groq.com/docs/models](https://console.groq.com/docs/models), pick a current production model, and update `GROQ_MODEL` in Secrets. |
+| "The configured Groq model is unavailable" | Groq retired or renamed the model | Go to [console.groq.com/docs/models](https://console.groq.com/docs/models), copy a current production model's exact ID, and update `GROQ_MODEL` in Secrets (no "groq/" prefix needed). |
+| "Unable to initialize LLM... did not match any supported native provider" | The model string used the old `groq/` LiteLLM-style prefix instead of the native `openai/` + `base_url` routing this app uses | Make sure `app.py` builds the model as `openai/<your-GROQ_MODEL-value>` with `base_url="https://api.groq.com/openai/v1"` — this is already set up correctly in the provided code; if you changed it, revert to that pattern. |
 | PDF upload gives "No readable text was found" | The PDF is a scanned image with no real text layer | Switch to "Paste text" and paste the resume content directly. |
 | App loads but the review is empty or cut off | The resume or job description was extremely long | Try trimming to the most relevant sections and try again. |
 
