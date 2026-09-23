@@ -74,7 +74,12 @@ def get_groq_config():
     # native OpenAI-compatible client, which respects a custom base_url.
     # Groq's API is OpenAI-compatible, so we send requests there instead
     # of OpenAI, using this native path (no LiteLLM dependency required).
-    crewai_model = f"openai/{raw_model_name}"
+    # Note: some Groq model IDs (like "openai/gpt-oss-120b") already start
+    # with "openai/" as part of Groq's own naming - don't double it up.
+    if raw_model_name.startswith("openai/"):
+        crewai_model = raw_model_name
+    else:
+        crewai_model = f"openai/{raw_model_name}"
 
     return api_key, crewai_model
 
